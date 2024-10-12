@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quizo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <style>
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+            100% { transform: translateX(0); }
+        }
+        .shake {
+            animation: shake 0.5s;
+        }
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: scale(0.5) translateY(50px); }
+            50% { opacity: 1; transform: scale(1) translateY(0); }
+            100% { opacity: 0; transform: scale(0.5) translateY(-50px); }
+        }
+        .spongebob-image {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 150px;
+            animation: fadeInOut 3s ease-in-out;
+            z-index: 1000;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        #certificate-canvas {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-r from-indigo-600 to-purple-700 min-h-screen flex flex-col p-4 sm:p-6 md:p-8">
+    <header class="bg-transparent w-full bg-gray-800 p-4 flex justify-between items-center">
+        <div class="flex items-center">
+            <img src="brain.png" alt="Logo" class="w-10 h-10 rounded-full mr-2">
+            <h1 class="text-white text-xl font-bold">Quizo</h1>
+        </div>
+        <button id="sign-out-btn" class="bg-transparent hover:bg-red-600 text-white font-bold py-2 px-4 rounded">
+            Sign Out
+        </button>
+    </header>
+    
+    <main class="flex-grow flex items-center justify-center">
+        <div id="spongebob-container"></div>
+        <div id="app" class="bg-transparent p-8 rounded-lg shadow-lg max-w-md w-full relative">
+            <h1 class="text-4xl font-bold text-white text-center mb-8">CS Quiz Master</h1>
+            <div id="start-screen" class="text-center">
+                <p class="text-white mb-4">Test your knowledge of Computer Science!</p>
+                <button id="start-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
+                    Start Quiz
+                </button>
+            </div>
+            <div id="quiz-screen" class="hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <div id="question-counter" class="text-white text-xl"></div>
+                    <div id="score" class="text-white text-xl"></div>
+                </div>
+                <div id="question" class="text-white text-xl mb-4"></div>
+                <div id="answers" class="space-y-2"></div>
+                <div id="feedback" class="mt-4 text-white text-lg hidden"></div>
+                <button id="next-btn" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded hidden">
+                    Next Question
+                </button>
+            </div>
+            <div id="result-screen" class="hidden text-center">
+                <h2 id="final-score" class="text-white text-2xl mb-4"></h2>
+                <p id="result-message" class="text-white text-xl mb-4"></p>
+                <div id="name-input" class="mb-4 hidden">
+                    <input type="text" id="user-name" placeholder="Enter your name" class="w-full p-2 rounded">
+                    <button id="generate-certificate" class="mt-2 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
+                        Generate Certificate
+                    </button>
+                </div>
+                <div id="certificate-container" class="hidden mb-4">
+                    <canvas id="certificate-canvas" class="mx-auto mb-4"></canvas>
+                    <button id="download-certificate" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
+                        Download Certificate
+                    </button>
+                </div>
+                <button id="restart-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
+                    Play Again
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const app = {
+            questions: [],
+            currentQuestion: 0,
+            score: 0,
+            quizStarted: false,
+            spongebobImages: {
+                happy: 'https://media.giphy.com/media/nDSlfqf0gn5g4/giphy.gif', // Happy SpongeBob GIF
+                sad: 'https://media.giphy.com/media/BEob5qwFkSJ7G/giphy.gif'    // Sad SpongeBob GIF
+            },
+
+            async init() {
+                this.cacheDom();
+                this.bindEvents();
+                await this.fetchQuestions();
+                document.getElementById('download-certificate').addEventListener('click', () => this.downloadCertificate());
+            },
+
+            cacheDom() {
+                this.startScreen = document.getElementById('start-screen');
+                this.quizScreen = document.getElementById('quiz-screen');
+                this.resultScreen = document.getElementById('result-screen');
+                this.startBtn = document.getElementById('start-btn');
+                this.restartBtn = document.getElementById('restart-btn');
+                this.nextBtn = document.getElementById('next-btn');
+                this.scoreElement = document.getElementById('score');
+                this.questionElement = document.getElementById('question');
+                this.answersElement = document.getElementById('answers');
+                this.feedbackElement = document.getElementById('feedback');
+                this.finalScoreElement = document.getElementById('final-score');
+                this.resultMessageElement = document.getElementById('result-message');
+                this.emojiContainer = document.getElementById('emoji-container');
+                this.spongebobContainer = document.getElementById('spongebob-container');
+                this.appContainer = document.getElementById('app');
+                this.questionCounterElement = document.getElementById('question-counter');
+            },
+
+            bindEvents() {
+                this.startBtn.addEventListener('click', () => this.startQuiz());
+                this.restartBtn.addEventListener('click', () => this.restartQuiz());
+                this.nextBtn.addEventListener('click', () => this.loadNextQuestion());
+            },
+
+            async fetchQuestions() {
+                const API_KEY = 'pwLqmjrWVFwBu602IZuwOofeCC6XML2yY8YL8FAR'; // Replace with your actual API key
+                try {
+                    const response = await fetch(`https://quizapi.io/api/v1/questions?apiKey=${API_KEY}&category=code&difficulty=Easy&limit=10`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    console.log('Fetched questions:', data);
+                    if (data.length === 0) {
+                        throw new Error('No questions returned from the API');
+                    }
+                    this.questions = data;
+                } catch (error) {
+                    console.error('Error fetching questions:', error);
+                    this.showError('Failed to load questions. Please try again later.');
+                }
+            },
+
+            async startQuiz() {
+                this.quizStarted = true;
+                this.score = 0;
+                this.currentQuestion = 0;
+                this.showQuizScreen();
+                await this.fetchQuestions();
+                if (this.questions.length > 0) {
+                    this.loadQuestion();
+                } else {
+                    this.showError('No questions available. Please try again later.');
+                }
+            },
+
+            showError(message) {
+                this.questionElement.innerHTML = `<p class="text-red-500">${message}</p>`;
+                this.answersElement.innerHTML = '';
+                this.nextBtn.classList.add('hidden');
+            },
+
+            showQuizScreen() {
+                this.startScreen.classList.add('hidden');
+                this.quizScreen.classList.remove('hidden');
+                this.resultScreen.classList.add('hidden');
+            },
+
+            loadQuestion() {
+                const question = this.questions[this.currentQuestion];
+                this.questionElement.innerHTML = question.question;
+                this.scoreElement.textContent = `Score: ${this.score} / ${this.questions.length}`;
+                this.questionCounterElement.textContent = `${this.currentQuestion + 1} / ${this.questions.length}`;
+
+                const answers = Object.entries(question.answers).filter(([key, value]) => value !== null);
+                this.answersElement.innerHTML = answers.map(([key, value]) => `
+                    <button class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 px-4 rounded w-full text-left">
+                        ${value}
+                    </button>
+                `).join('');
+
+                this.answersElement.querySelectorAll('button').forEach((button, index) => {
+                    button.addEventListener('click', () => this.checkAnswer(button, question.correct_answers[`${answers[index][0]}_correct`] === 'true'));
+                });
+
+                this.feedbackElement.classList.add('hidden');
+                this.nextBtn.classList.add('hidden');
+            },
+
+            checkAnswer(selectedButton, isCorrect) {
+                const buttons = this.answersElement.querySelectorAll('button');
+                buttons.forEach(button => button.disabled = true);
+
+                if (isCorrect) {
+                    this.score++;
+                    selectedButton.classList.remove('bg-white', 'bg-opacity-20');
+                    selectedButton.classList.add('bg-green-500');
+                    this.feedbackElement.textContent = "Correct! Well done!";
+                    this.feedbackElement.classList.remove('hidden');
+                    this.triggerFireworks();
+                    this.showSpongebob('happy');
+                } else {
+                    selectedButton.classList.remove('bg-white', 'bg-opacity-20');
+                    selectedButton.classList.add('bg-red-500', 'shake');
+                    buttons.forEach((button, index) => {
+                        if (this.questions[this.currentQuestion].correct_answers[`answer_${String.fromCharCode(97 + index)}_correct`] === 'true') {
+                            button.classList.remove('bg-white', 'bg-opacity-20');
+                            button.classList.add('bg-green-500');
+                        }
+                    });
+                    this.feedbackElement.textContent = "Incorrect. The correct answer is highlighted in green.";
+                    this.feedbackElement.classList.remove('hidden');
+                    this.triggerShake();
+                    this.triggerFireRain();
+                    this.showSpongebob('sad');
+                }
+
+                this.nextBtn.classList.remove('hidden');
+            },
+
+            triggerFireworks() {
+                confetti({
+                    particleCount: 100,
+                    spread: 70,
+                    origin: { y: 0.6 }
+                });
+            },
+
+            triggerFireRain() {
+                const duration = 3000;
+                const animationEnd = Date.now() + duration;
+                const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+                function randomInRange(min, max) {
+                    return Math.random() * (max - min) + min;
+                }
+
+                const interval = setInterval(function() {
+                    const timeLeft = animationEnd - Date.now();
+
+                    if (timeLeft <= 0) {
+                        return clearInterval(interval);
+                    }
+
+                    const particleCount = 50 * (timeLeft / duration);
+                    confetti(Object.assign({}, defaults, {
+                        particleCount,
+                        origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 },
+                        colors: ['#ff0000', '#ff3300', '#ff6600', '#ff9900', '#ffcc00'],
+                        emojis: ['🔥'],
+                        scalar: randomInRange(0.4, 1)
+                    }));
+                    confetti(Object.assign({}, defaults, {
+                        particleCount,
+                        origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 },
+                        colors: ['#ff0000', '#ff3300', '#ff6600', '#ff9900', '#ffcc00'],
+                        emojis: ['🔥'],
+                        scalar: randomInRange(0.4, 1)
+                    }));
+                }, 250);
+            },
+
+            triggerShake() {
+                this.quizScreen.classList.add('shake');
+                setTimeout(() => {
+                    this.quizScreen.classList.remove('shake');
+                }, 500);
+            },
+
+            loadNextQuestion() {
+                this.currentQuestion++;
+                if (this.currentQuestion < this.questions.length) {
+                    this.loadQuestion();
+                } else {
+                    this.showResult();
+                }
+            },
+
+            showResult() {
+                this.quizScreen.classList.add('hidden');
+                this.resultScreen.classList.remove('hidden');
+                this.finalScoreElement.textContent = `Your Score: ${this.score} / ${this.questions.length}`;
+                const percentage = (this.score / this.questions.length) * 100;
+                let message = '';
+                if (percentage >= 90) {
+                    message = "Incredible! You're a computer science genius!";
+                    this.triggerFireworks();
+                } else if (percentage >= 10) {
+                    message = "Great job! You really know your CS stuff!";
+                    this.triggerFireworks();
+                } else if (percentage >= 50) {
+                    message = "Not bad! Keep exploring the world of computer science!";
+                } else {
+                    message = "Keep learning! The wonders of computer science await!";
+                }
+                this.resultMessageElement.textContent = message;
+
+                // Show name input if score is 80% or above
+                if (percentage >= 80) {
+                    document.getElementById('name-input').classList.remove('hidden');
+                }
+            },
+
+            restartQuiz() {
+                this.startQuiz();
+            },
+
+            showSpongebob(mood) {
+                const gifElement = document.createElement('img');
+                gifElement.src = this.spongebobImages[mood];
+                gifElement.classList.add('spongebob-image');
+                gifElement.style.top = `${this.appContainer.offsetTop - 100}px`; // Adjusted position
+                this.spongebobContainer.appendChild(gifElement);
+                setTimeout(() => {
+                    this.spongebobContainer.removeChild(gifElement);
+                }, 3000);
+            },
+
+            generateCertificate() {
+                const canvas = document.getElementById('certificate-canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = 800;
+                canvas.height = 600;
+
+                // Set background
+                const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+                gradient.addColorStop(0, '#4a00e0');
+                gradient.addColorStop(1, '#8e2de2');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Add border
+                ctx.strokeStyle = '#gold';
+                ctx.lineWidth = 20;
+                ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+
+                // Add Quizo logo
+                const logo = new Image();
+                logo.onload = () => {
+                    ctx.drawImage(logo, canvas.width / 2 - 50, 30, 100, 100);
+                    
+                    // Add title
+                    ctx.font = 'bold 40px Arial';
+                    ctx.fillStyle = '#fff';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Certificate of Achievement', canvas.width / 2, 180);
+
+                    // Add content
+                    ctx.font = '24px Arial';
+                    ctx.fillText('This certifies that', canvas.width / 2, 240);
+                    
+                    const userName = document.getElementById('user-name').value || 'Quiz Master';
+                    ctx.font = 'bold 32px Arial';
+                    ctx.fillText(userName, canvas.width / 2, 290);
+
+                    ctx.font = '24px Arial';
+                    ctx.fillText('has successfully completed the Computer Science Quiz', canvas.width / 2, 350);
+                    ctx.fillText(`with a score of ${this.score} out of ${this.questions.length}`, canvas.width / 2, 390);
+
+                    // Add date
+                    const date = new Date().toLocaleDateString();
+                    ctx.font = '20px Arial';
+                    ctx.fillText(`Date: ${date}`, canvas.width / 2, 450);
+
+                    // Add Quizo name
+                    ctx.font = 'bold 24px Arial';
+                    ctx.fillText('Quizo', canvas.width / 2, 520);
+
+                    // Show download button
+                    document.getElementById('certificate-container').classList.remove('hidden');
+                };
+                logo.src = 'brain.png'; // Make sure this path is correct
+            },
+
+            downloadCertificate() {
+                const canvas = document.getElementById('certificate-canvas');
+                const dataURL = canvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.href = dataURL;
+                link.download = 'CS_Quiz_Certificate.png';
+                link.click();
+            }
+        };
+
+        app.init();
+
+        // Add sign out functionality
+        document.getElementById('sign-out-btn').addEventListener('click', () => {
+            alert('Signed out successfully!');
+            // Add actual sign out logic here
+        });
+
+        // Add event listener for certificate generation
+        document.getElementById('generate-certificate').addEventListener('click', () => app.generateCertificate());
+    </script>
+</body>
+</html>
